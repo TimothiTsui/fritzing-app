@@ -1,30 +1,53 @@
-name: Xcode - Build and Analyze
+#!/bin/bash -e
+QTBIN=/usr/local/opt/qt5/bin
 
-on:
-  push:
-    branches: [ "develop" ]
-  pull_request:
-    branches: [ "develop" ]
+# Go to this scripts directory and then one up
+toolsdir=$(dirname "${BASH_SOURCE[0]}")
+cd "$toolsdir"/..
+workingdir=$(pwd)
 
-jobs:
-  build:
-    name: Build and analyse default scheme using xcodebuild command
-    runs-on: macos-latest
+echo ">> working directory"
+echo "$workingdir"
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Set Default Scheme
-        run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo Using default scheme: $default
-      - name: Build
-        env:
-          scheme: ${{ 'default' }}
-        run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+deploydir=$workingdir/../deploy-app
+echo ">> deploy directory"
+echo "$deploydir"
+rm -rf "$deploydir"
+mkdir "$deploydir"
+
+builddir=$workingdir/../release64  # this is pre-defined by Qt
+echo ">> build directory"
+echo "$builddir"
+
+echo ">> building fritzing from working directory"
+$QTBIN/qmake -o Makefile phoenix.pro
+make "-j$(sysctl -n machdep.cpu.thread_count)" release  # release is the type of build
+cp -r "$builddir/Fritzing.app" "$deploydir"
+
+supportdir=$deploydir/Fritzing.app/Contents/MacOS
+echo ">> support directory"
+echo "$supportdir"
+
+echo ">> copy support files"
+cd "$workingdir"
+cp -rf sketches help translations INSTALL.txt README.md LICENSE.CC-BY-SA LICENSE.GPL2 LICENSE.GPL3 "$supportdir/"
+
+echo ">> clean translations"
+cd "$supportdir"
+rm -f ./translations/*.ts  			# remove translation xml files, since we only need the binaries in the release
+find ./translations -name "*.qm" -size -128c -delete   # delete empty translation binaries
+
+echo ">> clone parts repository"
+git clone --branch master --single-branch https://github.com/fritzing/fritzing-parts.git
+echo ">> build parts database"
+./Fritzing -db "fritzing-parts/parts.db"  # -pp "fritzing-parts" -f "."
+
+echo ">> add .app dependencies"
+cd "$deploydir"
+$QTBIN/macdeployqt Fritzing.app -verbose=2 -dmg
+
+echo ">> launch Fritzing"
+cd "$deploydir"
+open Fritzing.dmg
+
+echo ">> done!"
