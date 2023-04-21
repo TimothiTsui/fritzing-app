@@ -1,53 +1,93 @@
-#!/bin/bash -e
-QTBIN=/usr/local/opt/qt5/bin
+- name: Install Qt
+  # You may pin to the exact commit or the version.
+  # uses: jurplel/install-qt-action@37e649dae477dba3481cbec4788e5b3ca9d6e170
+  uses: jurplel/install-qt-action@v3.1.0
+  with:
+    # Directory to install Qt
+    dir: qtdir
+    # Version of Qt to install
+    version: # optional, default is 5.15.2
+    # Host platform
+    host: # optional
+    # Target platform for build
+    target: # optional, default is desktop
+    # Architecture for Windows/Android
+    arch: # optional
+    # Whether or not to install Qt dependencies on Linux
+    install-deps: # optional, default is true
+    # Additional Qt modules to install
+    modules: # optional
+    # Specify which Qt archive to install
+    archives: # optional
+    # Whether or not to cache Qt automatically
+    cache: # optional
+    # Cache key prefix for automatic cache
+    cache-key-prefix: # optional, default is install-qt-action
+    # Whether or not to automatically run setup-python to find a valid python version.
+    setup-python: # optional, default is true
+    # Qt tools to download -- specify comma-separated argument lists which are themselves separated by spaces: <tool_name>,<tool_version>,<tool_arch>
 
-# Go to this scripts directory and then one up
-toolsdir=$(dirname "${BASH_SOURCE[0]}")
-cd "$toolsdir"/..
-workingdir=$(pwd)
+    tools: # optional
+    # Whether or not to set environment variables after running aqtinstall
+    set-env: # optional, default is true
+    # Whether or not to actually install Qt or just the tools from the tools argument
+    tools-only: # optional
+    # Version of aqtinstall to use in case of issues
+    aqtversion: # optional, default is ==2.1.*
+    # Version of py7zr to use in case of issues
+    py7zrversion: # optional, default is ==0.19.*
+    # Any extra arguments to append to the back
+    extra: # optional
+    
+      echo ">> qt directory"
+      echo "$qtdir"
+      
+      toolsdir= $qtdir
+      cd "$toolsdir"/..
+      workingdir=$(pwd)
 
-echo ">> working directory"
-echo "$workingdir"
+      echo ">> working directory"
+      echo "$workingdir"
 
-deploydir=$workingdir/../deploy-app
-echo ">> deploy directory"
-echo "$deploydir"
-rm -rf "$deploydir"
-mkdir "$deploydir"
+      deploydir=$workingdir/../deploy-app
+      echo ">> deploy directory"
+      echo "$deploydir"
+      rm -rf "$deploydir"
+      mkdir "$deploydir"
 
-builddir=$workingdir/../release64  # this is pre-defined by Qt
-echo ">> build directory"
-echo "$builddir"
+      echo ">> build directory"
+      echo "$builddir"
+      builddir=$workingdir/../release64  # this is pre-defined by Qt
+  
+      echo ">> building fritzing from working directory"
+      $toolsdir/qmake -o Makefile phoenix.pro
+      make "-j$(sysctl -n machdep.cpu.thread_count)" release  # release is the type of build
+      cp -r "$builddir/Fritzing.app" "$deploydir"
 
-echo ">> building fritzing from working directory"
-$QTBIN/qmake -o Makefile phoenix.pro
-make "-j$(sysctl -n machdep.cpu.thread_count)" release  # release is the type of build
-cp -r "$builddir/Fritzing.app" "$deploydir"
+      supportdir=$deploydir/Fritzing.app/Contents/MacOS
+      echo ">> support directory"
+      echo "$supportdir"
 
-supportdir=$deploydir/Fritzing.app/Contents/MacOS
-echo ">> support directory"
-echo "$supportdir"
+      echo ">> copy support files"
+      cd "$workingdir"
+      cp -rf sketches help translations INSTALL.txt README.md LICENSE.CC-BY-SA LICENSE.GPL2 LICENSE.GPL3 "$supportdir/"
 
-echo ">> copy support files"
-cd "$workingdir"
-cp -rf sketches help translations INSTALL.txt README.md LICENSE.CC-BY-SA LICENSE.GPL2 LICENSE.GPL3 "$supportdir/"
+      echo ">> clean translations"
+      cd "$supportdir"
+      rm -f ./translations/*.ts  			# remove translation xml files, since we only need the binaries in the release
+      find ./translations -name "*.qm" -size -128c -delete   # delete empty translation binaries
 
-echo ">> clean translations"
-cd "$supportdir"
-rm -f ./translations/*.ts  			# remove translation xml files, since we only need the binaries in the release
-find ./translations -name "*.qm" -size -128c -delete   # delete empty translation binaries
+      echo ">> clone parts repository"
+      git clone --branch master --single-branch https://github.com/fritzing/fritzing-parts.git
+      echo ">> build parts database"
+      ./Fritzing -db "fritzing-parts/parts.db"  # -pp "fritzing-parts" -f "."
 
-echo ">> clone parts repository"
-git clone --branch master --single-branch https://github.com/fritzing/fritzing-parts.git
-echo ">> build parts database"
-./Fritzing -db "fritzing-parts/parts.db"  # -pp "fritzing-parts" -f "."
+      echo ">> add .app dependencies"
+      cd "$deploydir"
+      $QTBIN/macdeployqt Fritzing.app -verbose=2 -dmg
 
-echo ">> add .app dependencies"
-cd "$deploydir"
-$QTBIN/macdeployqt Fritzing.app -verbose=2 -dmg
+      echo ">> launch Fritzing"
+      cd "$deploydir"
+      open Fritzing.dmg
 
-echo ">> launch Fritzing"
-cd "$deploydir"
-open Fritzing.dmg
-
-echo ">> done!"
+      echo ">> done!"
